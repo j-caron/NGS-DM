@@ -1,0 +1,10 @@
+sudo apt update
+sudo apt install unzip trimmomatic rna-star samtools subread
+
+mkdir index
+
+wget http://hgdownload.soe.ucsc.edu/goldenPath/hg19/chromosomes/chr18.fa.gz -O chr18.fa.gz
+gunzip chr18.fa.gz
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_24/GRCh37_mapping/gencode.v24lift37.basic.annotation.gtf.gz -O annotation.gtf.gz
+gunzip annotation.gtf.gz
+STAR --runMode genomeGenerate --runThreadN 4 --genomeDir ./index genomeFastaFiles chr18.fa sjdbGTFfile annotation.gtf
