@@ -51,7 +51,7 @@ for X in 0 7; do
     echo
   done
 done
-echo "----------Tous les fichiers sont trimmés, mappés et indexés, on passe au comptage des reads------>
+echo "----------Tous les fichiers sont trimmés, mappés et indexés, on passe au comptage des reads----------"
 echo "----------Comptage des reads alignés sur chaque gène----------"
 featureCounts -p -t exon -g gene_id -a annotation.gtf -o counts.txt results/*.bam
 
