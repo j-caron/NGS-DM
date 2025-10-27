@@ -1,0 +1,82 @@
+#!/bin/bash
+
+echo "----------Téléchargement des fichiers fastq----------"
+wget https://zenodo.org/api/records/7525740/files-archive -O seq.tar
+echo "----------Décompression du dossier des séquences----------"
+unzip seq.tar
+
+echo "----------Création du dossier pour les résultats de l'analyse----------"
+mkdir -p results
+
+# paramètres de lanalyse: nombre de coeurs, emplacement de lindex et des résultats
+THREADS=8
+GENOME_INDEX="./index"
+RESULTS_DIR="./results"
+
+echo "----------Création des dossiers pour les résultats de fastqc et de trimmomatic----------"
+mkdir -p fastqc_results trimmed_results ${RESULTS_DIR}
+
+# boucle sur X (jour) et Y (numéro du sample)
+for X in 0 7; do
+  for Y in 1 2 3; do
+
+    # Permet d'avoir facilement tous les noms des fichiers fastq.gz
+    PREFIX="Day_${X}_${Y}_chr18.sampled"
+    R1="${PREFIX}.R1.fastq.gz"
+    R2="${PREFIX}.R2.fastq.gz"
+
+    echo "----------Traitement de ${PREFIX}-----------"
+
+    echo "----------1.Trimming des fastq----------"
+    trimmomatic PE "$R1" "$R2" \
+      -baseout trimmed_results/${PREFIX}.fastq.gz \
+      LEADING:25 TRAILING:25 MINLEN:50
+
+    echo "----------2.Mapping sur le génome avec STAR----------"
+    STAR --runThreadN ${THREADS} \
+      --outFilterMultimapNmax 1 \
+      --genomeDir ${GENOME_INDEX} \
+      --outSAMattributes All \
+      --outSAMtype BAM SortedByCoordinate \
+      --outFileNamePrefix ${RESULTS_DIR}/${PREFIX}_ \
+      --readFilesIn trimmed_results/${PREFIX}_1P.fastq.gz trimmed_results/${PREFIX}_2P.fastq.gz \
+      --readFilesCommand zcat
+
+    echo "----------3.Tri et indexation du fichier mappé .bam avec samtools----------"
+    samtools sort -@ 8 -o ${RESULTS_DIR}/${PREFIX}_Aligned.sorted.bam \
+    ${RESULTS_DIR}/${PREFIX}_Aligned.sortedByCoord.out.bam
+    samtools index ${RESULTS_DIR}/${PREFIX}_Aligned.sortedByCoord.out.bam
+
+    echo "----------${PREFIX} terminé----------"
+    echo
+  done
+done
+echo "----------Tous les fichiers sont trimmés, mappés et indexés, on passe au comptage des reads----------"
+echo "----------Comptage des reads alignés sur chaque gène----------"
+featureCounts -p -t exon -g gene_id -a annotation.gtf -o counts.txt results/*.bam
+
+echo "----------Création d'une table d'équivalence entre les noms ENSEMBL et HUGO avec perl----------"
+perl -ne 'print "$1 $2\n" if /gene_id \"(.*?)\".*gene_name \"(.*?)\"/'    annotation.gtf | sort | uniq > gene_id_names.txt
+echo "----------Tri du fichier de comptage et de la liste d'équivalence avec sort, et jointure des fichiers avec join----------"
+sort counts.txt > temp1
+sort gene_id_names.txt > temp2
+join temp1 temp2 |grep "chr18" > temp3
+
+echo "----------Création de la table de comptage avec awk----------"
+awk -F' ' '
+  /chr18/ {                     # ne garder que les lignes contenant "chr18"
+    if(!seen[$NF]++) {          # supprimer les doublons basés sur gene_name ($NF)
+      printf "%s", $NF;         # afficher le gene_name
+      for(i=6;i<=17;i++) {      # parcourir colonnes 6 à 17
+        if(i==8 || i==10 || i==12 || i==14 || i==16) continue; # sauter les colonnes non nécessaire
+        printf " %s", $i;       # afficher la colonne
+      }
+      printf "\n"
+    }
+  }
+' temp3 > final_chr18_counts.txt
+
+echo "----------Résultats pour le gène CDH2: ----------"
+grep -w "^CDH2" final_chr18_counts.txt
+
+echo "----------Analyse terminée !----------"
